@@ -114,26 +114,29 @@
 
 (defn- access-token-http-options
   [{:keys [access-token-uri client-id client-secret basic-auth?]
-    :or   {basic-auth? false} :as profile}
-   request]
+    :or   {basic-auth? false}}
+   form-params]
   (let [opts {:method      :post
               :url         access-token-uri
               :accept      :json
               :as          :json
-              :form-params (request-params profile request)}]
+              :form-params form-params}]
     (if basic-auth?
       (add-header-credentials opts client-id client-secret)
       (add-form-credentials   opts client-id client-secret))))
 
 (defn- get-access-token
   ([profile request]
-   (-> (http/request (access-token-http-options profile request))
+   (-> (access-token-http-options profile (request-params profile request))
+       http/request
        (format-access-token)))
   ([profile request respond raise]
-   (http/request (-> (access-token-http-options profile request)
-                     (assoc :async? true))
-                 (comp respond format-access-token)
-                 raise)))
+   (http/request
+    (-> (access-token-http-options profile
+                                   (request-params profile request))
+        (assoc :async? true))
+    (comp respond format-access-token)
+    raise)))
 
 (defn state-mismatch-handler
   ([_]
@@ -188,10 +191,91 @@
                            (respond (redirect-response profile session token)))
                          raise)))))
 
-(defn- assoc-access-tokens [request]
-  (if-let [tokens (-> request :session ::access-tokens)]
+(defn- get-expired
+  "Returns expired profile keys and refresh tokens in `access-tokens`."
+  [access-tokens]
+  (let [now (new Date)]
+    (for [[profile-key {:keys [expires refresh-token]}] access-tokens
+          :when (and expires refresh-token (.before expires now))]
+      {:profile-key profile-key :refresh-token refresh-token})))
+
+(defn- update-tokens
+  "If `maybe-grant` is nil, removes `profile-key` from `access-token; otherwise
+  merges `profile-key` with `maybe-grant`."
+  [access-tokens [profile-key maybe-grant]]
+  (if maybe-grant
+    ;; `update ... merge` to properly handle case where authorization server
+    ;; does not update the refresh token after use and we should re-use the
+    ;; existing refresh token
+    (update access-tokens profile-key merge maybe-grant)
+    (dissoc access-tokens profile-key)))
+
+(def socket-timeout 60000)
+
+(defn- refresh-one-token
+  ([profile refresh-token]
+   (-> (access-token-http-options
+        profile
+        {:grant_type "refresh_token" :refresh_token refresh-token})
+       (assoc :socket-timeout socket-timeout)
+       http/request
+       format-access-token))
+  ([profile refresh-token respond raise]
+   (-> (access-token-http-options
+        profile
+        {:grant_type "refresh_token"
+         :refresh_token refresh-token})
+       (assoc :async? true
+              :socket-timeout socket-timeout)
+       (http/request (comp respond format-access-token) raise))))
+
+(defn- valid-token? [token]
+  (and token (string? token) (not (str/blank? token))))
+
+(defn- refresh-all-tokens
+  "Refreshes all expired tokens, yielding an updated map of tokens"
+  ([profiles access-tokens]
+   (let [refresh-results
+         (for [{:keys [profile-key refresh-token]} (get-expired access-tokens)
+               :let [profile (profile-key profiles)]
+               :when (and profile (valid-token? refresh-token))]
+           [profile-key
+            (try (refresh-one-token profile refresh-token)
+                 (catch clojure.lang.ExceptionInfo _
+                   nil))])]
+     (reduce update-tokens access-tokens refresh-results)))
+  ([profiles access-tokens respond]
+   ;; strategy: launch all requests concurrently, keeping track of completed
+   ;; requests in `results`. When all requests have finished, respond.
+   (let [expired (get-expired access-tokens)
+         total (count expired)
+         results (atom {})  ;; map from profile-key to result
+         respond-when-done! #(when (= (count @results) total)
+                               (respond (reduce update-tokens access-tokens @results)))]
+     (if (zero? total)
+       (respond access-tokens)
+       (doseq [{:keys [profile-key refresh-token]} expired
+               :let [profile (profile-key profiles)]
+               :when (and profile (valid-token? refresh-token))]
+         (refresh-one-token profile refresh-token
+                            (fn [refresh-result]
+                              (swap! results assoc profile-key refresh-result)
+                              (respond-when-done!))
+                            (fn [_]
+                              (swap! results assoc profile-key nil)
+                              (respond-when-done!))))))))
+
+(defn- assoc-access-tokens-in-request [request tokens]
+  (if tokens
     (assoc request :oauth2/access-tokens tokens)
     request))
+
+(defn- assoc-access-tokens-in-response
+  "If any tokens are present, adds to them the `:session` key of `response`."
+  [response tokens]
+  (if tokens
+    (assoc-in response [:session ::access-tokens] tokens)
+    response))
 
 (defn- parse-redirect-url [{:keys [redirect-uri]}]
   (.getPath (java.net.URI. redirect-uri)))
@@ -199,22 +283,50 @@
 (defn- valid-profile? [{:keys [client-id client-secret]}]
   (and (some? client-id) (some? client-secret)))
 
-(defn wrap-oauth2 [handler profiles]
+(defn wrap-oauth2
+  "Middleware that handles OAuth2 authentication flows.
+
+   Parameters:
+   * `handler`: The downstream ring handler
+   * `profiles`: A map of profiles
+
+   Each request URI is matched against the profiles to determine the appropriate
+   OAuth2 flow handler. If no match is found, the request is passed to the
+   downstream handler with existing access tokens added to the request under the
+  `:oauth2/access-tokens` key.
+
+  Expired tokens are refreshed using their refresh-token if possible. If refresh
+  fails, the access token is removed."
+  [handler profiles]
   {:pre [(every? valid-profile? (vals profiles))]}
-  (let [profiles  (for [[k v] profiles] (assoc v :id k))
-        launches  (into {} (map (juxt :launch-uri identity)) profiles)
-        redirects (into {} (map (juxt parse-redirect-url identity)) profiles)]
+  (let [id-profiles  (for [[k v] profiles] (assoc v :id k))
+        launches  (into {} (map (juxt :launch-uri identity)) id-profiles)
+        redirects (into {} (map (juxt parse-redirect-url identity)) id-profiles)]
     (fn
       ([{:keys [uri] :as request}]
        (if-let [profile (launches uri)]
          ((make-launch-handler profile) request)
          (if-let [profile (redirects uri)]
            ((:redirect-handler profile (make-redirect-handler profile)) request)
-           (handler (assoc-access-tokens request)))))
+           (let [access-tokens (get-in request [:session ::access-tokens])
+                 refreshed-tokens (refresh-all-tokens profiles access-tokens)]
+             (-> request
+                 (assoc-access-tokens-in-request refreshed-tokens)
+                 handler
+                 (assoc-access-tokens-in-response refreshed-tokens))))))
       ([{:keys [uri] :as request} respond raise]
        (if-let [profile (launches uri)]
          ((make-launch-handler profile) request respond raise)
          (if-let [profile (redirects uri)]
            ((:redirect-handler profile (make-redirect-handler profile))
             request respond raise)
-           (handler (assoc-access-tokens request) respond raise)))))))
+           (let [access-tokens (get-in request [:session ::access-tokens])
+                 respond (fn [refreshed-tokens]
+                           (handler
+                            (assoc-access-tokens-in-request
+                             request refreshed-tokens)
+                            (comp respond
+                                  #(assoc-access-tokens-in-response
+                                    % refreshed-tokens))
+                            raise))]
+             (refresh-all-tokens profiles access-tokens respond))))))))
