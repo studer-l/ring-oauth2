@@ -226,15 +226,12 @@
               :socket-timeout socket-timeout)
        (http/request (comp respond format-access-token) raise))))
 
-(defn- valid-token? [token]
-  (and token (string? token) (not (str/blank? token))))
-
 (defn- refresh-all-tokens
   ([profiles access-tokens]
    (let [refresh-results
          (for [{:keys [profile-key refresh-token]} (expired-access-tokens access-tokens)
                :let [profile (profile-key profiles)]
-               :when (and profile (valid-token? refresh-token))]
+               :when (and profile refresh-token)]
            [profile-key
             (try (refresh-one-token profile refresh-token)
                  (catch clojure.lang.ExceptionInfo _
@@ -253,7 +250,7 @@
        (respond access-tokens)
        (doseq [{:keys [profile-key refresh-token]} expired
                :let [profile (profile-key profiles)]
-               :when (and profile (valid-token? refresh-token))]
+               :when (and profile refresh-token)]
          (refresh-one-token profile refresh-token
                             (fn [refresh-result]
                               (swap! results assoc profile-key refresh-result)
