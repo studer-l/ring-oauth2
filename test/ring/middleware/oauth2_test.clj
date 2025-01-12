@@ -430,8 +430,10 @@
           (is (= new-token (dissoc (get-in response [:body :test]) :expires)))
           (is (approx-eq new-expires (get-in response [:body :test :expires])))
           ;; and the user's session is updated
-          (is (= new-token (dissoc (get-in response [:session ::oauth2/access-tokens :test])
-                                   :expires)))))
+          (is (= new-token
+                 (dissoc (get-in response
+                                 [:session ::oauth2/access-tokens :test])
+                         :expires)))))
       (testing "async refresh"
         (let [respond (promise)
               raise   (promise)]

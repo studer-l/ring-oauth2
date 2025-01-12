@@ -251,7 +251,8 @@
          total (count expired)
          results (atom {})  ;; map from profile-key to result
          respond-when-done! #(when (= (count @results) total)
-                               (respond (reduce update-tokens access-tokens @results)))]
+                               (respond (reduce update-tokens
+                                                access-tokens @results)))]
      (if (zero? total)
        (respond access-tokens)
        (doseq [{:keys [profile-key refresh-token]} expired
