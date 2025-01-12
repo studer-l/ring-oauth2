@@ -208,14 +208,14 @@
     (update access-tokens profile-key merge maybe-grant)
     (dissoc access-tokens profile-key)))
 
-(def socket-timeout 60000)
+(def refresh-socket-timeout 60000)
 
 (defn- refresh-one-token
   ([profile refresh-token]
    (-> (access-token-http-options
         profile
         {:grant_type "refresh_token" :refresh_token refresh-token})
-       (assoc :socket-timeout socket-timeout)
+       (assoc :socket-timeout refresh-socket-timeout)
        http/request
        format-access-token))
   ([profile refresh-token respond raise]
@@ -224,7 +224,7 @@
         {:grant_type "refresh_token"
          :refresh_token refresh-token})
        (assoc :async? true
-              :socket-timeout socket-timeout)
+              :socket-timeout refresh-socket-timeout)
        (http/request (comp respond format-access-token) raise))))
 
 (defn- refresh-all-tokens
