@@ -192,7 +192,6 @@
                          raise)))))
 
 (defn- expired-access-tokens
-  "Returns expired profile keys and refresh tokens in `access-tokens`."
   [access-tokens]
   (let [now (new Date)]
     (for [[profile-key {:keys [expires refresh-token]}] access-tokens
@@ -200,8 +199,6 @@
       {:profile-key profile-key :refresh-token refresh-token})))
 
 (defn- update-tokens
-  "If `maybe-grant` is nil, removes `profile-key` from `access-token; otherwise
-  merges `profile-key` with `maybe-grant`."
   [access-tokens [profile-key maybe-grant]]
   (if maybe-grant
     ;; `update ... merge` to properly handle case where authorization server
@@ -233,7 +230,6 @@
   (and token (string? token) (not (str/blank? token))))
 
 (defn- refresh-all-tokens
-  "Refreshes all expired tokens, yielding an updated map of tokens"
   ([profiles access-tokens]
    (let [refresh-results
          (for [{:keys [profile-key refresh-token]} (expired-access-tokens access-tokens)
@@ -272,7 +268,6 @@
     request))
 
 (defn- assoc-access-tokens-in-response
-  "If any tokens are present, adds to them the `:session` key of `response`."
   [response tokens]
   (if tokens
     (assoc-in response [:session ::access-tokens] tokens)
@@ -285,19 +280,6 @@
   (and (some? client-id) (some? client-secret)))
 
 (defn wrap-oauth2
-  "Middleware that handles OAuth2 authentication flows.
-
-   Parameters:
-   * `handler`: The downstream ring handler
-   * `profiles`: A map of profiles
-
-   Each request URI is matched against the profiles to determine the appropriate
-   OAuth2 flow handler. If no match is found, the request is passed to the
-   downstream handler with existing access tokens added to the request under the
-  `:oauth2/access-tokens` key.
-
-  Expired tokens are refreshed using their refresh-token if possible. If refresh
-  fails, the access token is removed."
   [handler profiles]
   {:pre [(every? valid-profile? (vals profiles))]}
   (let [id-profiles  (for [[k v] profiles] (assoc v :id k))
