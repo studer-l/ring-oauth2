@@ -193,10 +193,11 @@
 
 (defn- expired-access-tokens
   [access-tokens]
-  (let [now (Date.)]
-    (for [[profile-key {:keys [expires refresh-token]}] access-tokens
-          :when (and expires refresh-token (.before expires now))]
-      {:profile-key profile-key :refresh-token refresh-token})))
+  (let [now (Date.)
+        expired-access-token? (fn [[_ {:keys [expires refresh-token]}]]
+                                (and refresh-token expires
+                                     (.before expires now)))]
+    (->> access-tokens (filter expired-access-token?) (into {}))))
 
 (defn- update-tokens
   [access-tokens [profile-key maybe-grant]]
@@ -229,7 +230,8 @@
 (defn- refresh-all-tokens
   ([profiles access-tokens]
    (let [refresh-results
-         (for [{:keys [profile-key refresh-token]} (expired-access-tokens access-tokens)
+         (for [[profile-key {:keys [refresh-token]}] (expired-access-tokens
+                                                      access-tokens)
                :let [profile (profile-key profiles)]
                :when (and profile refresh-token)]
            [profile-key
@@ -248,7 +250,7 @@
                                                 access-tokens @results)))]
      (if (zero? total)
        (respond access-tokens)
-       (doseq [{:keys [profile-key refresh-token]} expired
+       (doseq [[profile-key {:keys [refresh-token]}] expired
                :let [profile (profile-key profiles)]
                :when (and profile refresh-token)]
          (refresh-one-token profile refresh-token
