@@ -193,7 +193,7 @@
 
 (defn- expired-access-tokens
   [access-tokens]
-  (let [now (new Date)]
+  (let [now (Date.)]
     (for [[profile-key {:keys [expires refresh-token]}] access-tokens
           :when (and expires refresh-token (.before expires now))]
       {:profile-key profile-key :refresh-token refresh-token})))
