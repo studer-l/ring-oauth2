@@ -191,7 +191,7 @@
                            (respond (redirect-response profile session token)))
                          raise)))))
 
-(defn- get-expired
+(defn- expired-access-tokens
   "Returns expired profile keys and refresh tokens in `access-tokens`."
   [access-tokens]
   (let [now (new Date)]
@@ -236,7 +236,7 @@
   "Refreshes all expired tokens, yielding an updated map of tokens"
   ([profiles access-tokens]
    (let [refresh-results
-         (for [{:keys [profile-key refresh-token]} (get-expired access-tokens)
+         (for [{:keys [profile-key refresh-token]} (expired-access-tokens access-tokens)
                :let [profile (profile-key profiles)]
                :when (and profile (valid-token? refresh-token))]
            [profile-key
@@ -247,7 +247,7 @@
   ([profiles access-tokens respond]
    ;; strategy: launch all requests concurrently, keeping track of completed
    ;; requests in `results`. When all requests have finished, respond.
-   (let [expired (get-expired access-tokens)
+   (let [expired (expired-access-tokens access-tokens)
          total (count expired)
          results (atom {})  ;; map from profile-key to result
          respond-when-done! #(when (= (count @results) total)
