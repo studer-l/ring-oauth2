@@ -290,12 +290,12 @@
          ((make-launch-handler profile) request)
          (if-let [profile (redirects uri)]
            ((:redirect-handler profile (make-redirect-handler profile)) request)
-           (let [access-tokens (get-in request [:session ::access-tokens])
-                 refreshed-tokens (refresh-all-tokens profiles access-tokens)]
+           (let [access-tokens (->> (get-in request [:session ::access-tokens])
+                                    (refresh-all-tokens profiles))]
              (-> request
-                 (assoc-access-tokens-in-request refreshed-tokens)
+                 (assoc-access-tokens-in-request access-tokens)
                  handler
-                 (assoc-access-tokens-in-response refreshed-tokens))))))
+                 (assoc-access-tokens-in-response access-tokens))))))
       ([{:keys [uri] :as request} respond raise]
        (if-let [profile (launches uri)]
          ((make-launch-handler profile) request respond raise)
@@ -303,12 +303,12 @@
            ((:redirect-handler profile (make-redirect-handler profile))
             request respond raise)
            (let [access-tokens (get-in request [:session ::access-tokens])
-                 respond (fn [refreshed-tokens]
+                 respond (fn [access-tokens]
                            (handler
                             (assoc-access-tokens-in-request
-                             request refreshed-tokens)
+                             request access-tokens)
                             (comp respond
                                   #(assoc-access-tokens-in-response
-                                    % refreshed-tokens))
+                                    % access-tokens))
                             raise))]
              (refresh-all-tokens profiles access-tokens respond))))))))
