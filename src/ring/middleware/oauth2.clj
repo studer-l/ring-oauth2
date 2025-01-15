@@ -98,7 +98,7 @@
 (defn- get-code-verifier [request]
   (get-in request [:session ::code-verifier]))
 
-(defn- request-params [{:keys [pkce?] :as profile} request]
+(defn- access-token-request-params [{:keys [pkce?] :as profile} request]
   (-> {:grant_type    "authorization_code"
        :code          (get-authorization-code request)
        :redirect_uri  (redirect-uri profile request)}
@@ -112,7 +112,7 @@
                                (merge {:client_id     id
                                        :client_secret secret}))))
 
-(defn- access-token-http-options
+(defn- token-http-options
   [{:keys [access-token-uri client-id client-secret basic-auth?]
     :or   {basic-auth? false}}
    form-params]
@@ -125,15 +125,18 @@
       (add-header-credentials opts client-id client-secret)
       (add-form-credentials   opts client-id client-secret))))
 
+(defn- access-token-http-options
+  [profile request]
+  (token-http-options profile (access-token-request-params profile request)))
+
 (defn- get-access-token
   ([profile request]
-   (-> (access-token-http-options profile (request-params profile request))
+   (-> (access-token-http-options profile request)
        http/request
        (format-access-token)))
   ([profile request respond raise]
    (http/request
-    (-> (access-token-http-options profile
-                                   (request-params profile request))
+    (-> (access-token-http-options profile request)
         (assoc :async? true))
     (comp respond format-access-token)
     raise)))
@@ -210,19 +213,18 @@
 
 (def refresh-socket-timeout 60000)
 
+(defn- refresh-token-request-options [profile refresh-token]
+  (token-http-options profile {:grant_type "refresh_token"
+                               :refresh_token refresh-token}))
+
 (defn- refresh-one-token
   ([profile refresh-token]
-   (-> (access-token-http-options
-        profile
-        {:grant_type "refresh_token" :refresh_token refresh-token})
+   (-> (refresh-token-request-options profile refresh-token)
        (assoc :socket-timeout refresh-socket-timeout)
        http/request
        format-access-token))
   ([profile refresh-token respond raise]
-   (-> (access-token-http-options
-        profile
-        {:grant_type "refresh_token"
-         :refresh_token refresh-token})
+   (-> (refresh-token-request-options profile refresh-token)
        (assoc :async? true
               :socket-timeout refresh-socket-timeout)
        (http/request (comp respond format-access-token) raise))))
