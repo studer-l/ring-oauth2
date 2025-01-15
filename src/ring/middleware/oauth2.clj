@@ -227,39 +227,39 @@
               :socket-timeout refresh-socket-timeout)
        (http/request (comp respond format-access-token) raise))))
 
+(defn- refresh-tasks [profiles access-tokens]
+  (->> (expired-access-tokens access-tokens)
+       (keep (fn [[profile-key {:keys [refresh-token]}]]
+               (when (and (get profiles profile-key) refresh-token)
+                 [profile-key [(get profiles profile-key) refresh-token]])))))
+
+(defn- async-map-values [f respond m]
+  (let [total (count m)
+        results (atom {})
+        respond-when-done #(when (= (count %) total) (respond %))]
+    (if (zero? total)
+      (respond {})
+      (doseq [[k v] m
+              :let [respond #(respond-when-done (swap! results assoc k %))
+                    raise (fn [_] (respond nil))]]
+        (f v respond raise)))))
+
 (defn- refresh-all-tokens
   ([profiles access-tokens]
-   (let [refresh-results
-         (for [[profile-key {:keys [refresh-token]}] (expired-access-tokens
-                                                      access-tokens)
-               :let [profile (profile-key profiles)]
-               :when (and profile refresh-token)]
-           [profile-key
-            (try (refresh-one-token profile refresh-token)
-                 (catch clojure.lang.ExceptionInfo _
-                   nil))])]
-     (reduce update-tokens access-tokens refresh-results)))
+   (->> (refresh-tasks profiles access-tokens)
+        (map (fn [[profile-key [profile refresh-token]]]
+               [profile-key
+                (try (refresh-one-token profile refresh-token)
+                     (catch clojure.lang.ExceptionInfo _ nil))]))
+        (reduce update-tokens access-tokens)))
   ([profiles access-tokens respond]
-   ;; strategy: launch all requests concurrently, keeping track of completed
-   ;; requests in `results`. When all requests have finished, respond.
-   (let [expired (expired-access-tokens access-tokens)
-         total (count expired)
-         results (atom {})  ;; map from profile-key to result
-         respond-when-done! #(when (= (count @results) total)
-                               (respond (reduce update-tokens
-                                                access-tokens @results)))]
-     (if (zero? total)
-       (respond access-tokens)
-       (doseq [[profile-key {:keys [refresh-token]}] expired
-               :let [profile (profile-key profiles)]
-               :when (and profile refresh-token)]
-         (refresh-one-token profile refresh-token
-                            (fn [refresh-result]
-                              (swap! results assoc profile-key refresh-result)
-                              (respond-when-done!))
-                            (fn [_]
-                              (swap! results assoc profile-key nil)
-                              (respond-when-done!))))))))
+   (async-map-values
+    (fn [[profile refresh-token] respond raise]
+      (refresh-one-token profile refresh-token respond raise))
+    (fn [refreshed-tokens]
+      (respond
+       (reduce update-tokens access-tokens refreshed-tokens)))
+    (refresh-tasks profiles access-tokens))))
 
 (defn- assoc-access-tokens-in-request [request tokens]
   (if tokens
@@ -304,11 +304,10 @@
             request respond raise)
            (let [access-tokens (get-in request [:session ::access-tokens])
                  respond (fn [access-tokens]
-                           (handler
-                            (assoc-access-tokens-in-request
-                             request access-tokens)
-                            (comp respond
-                                  #(assoc-access-tokens-in-response
-                                    % access-tokens))
-                            raise))]
+                           (let [request (assoc-access-tokens-in-request
+                                          request access-tokens)
+                                 respond (comp respond
+                                               #(assoc-access-tokens-in-response
+                                                 % access-tokens))]
+                             (handler request respond raise)))]
              (refresh-all-tokens profiles access-tokens respond))))))))

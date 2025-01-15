@@ -484,4 +484,5 @@
           (handler request respond raise)
           (is (= :empty (deref raise 100 :empty)))
           (let [response (deref respond 100 :empty)]
+            (is (not= response :empty))
             (is (= {:test-1 good-grant} (:body response)))))))))
