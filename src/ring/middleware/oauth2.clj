@@ -125,8 +125,7 @@
       (add-header-credentials opts client-id client-secret)
       (add-form-credentials   opts client-id client-secret))))
 
-(defn- access-token-http-options
-  [profile request]
+(defn- access-token-http-options [profile request]
   (token-http-options profile (access-token-request-params profile request)))
 
 (defn- get-access-token
@@ -194,16 +193,14 @@
                            (respond (redirect-response profile session token)))
                          raise)))))
 
-(defn- expired-access-tokens
-  [access-tokens]
+(defn- expired-access-tokens [access-tokens]
   (let [now (Date.)
         expired-access-token? (fn [[_ {:keys [expires refresh-token]}]]
                                 (and refresh-token expires
                                      (.before expires now)))]
     (->> access-tokens (filter expired-access-token?) (into {}))))
 
-(defn- update-tokens
-  [access-tokens [profile-key maybe-grant]]
+(defn- update-tokens [access-tokens [profile-key maybe-grant]]
   (if maybe-grant
     ;; `update ... merge` to properly handle case where authorization server
     ;; does not update the refresh token after use and we should re-use the
@@ -268,8 +265,7 @@
     (assoc request :oauth2/access-tokens tokens)
     request))
 
-(defn- assoc-access-tokens-in-response
-  [response tokens]
+(defn- assoc-access-tokens-in-response [response tokens]
   (if tokens
     (assoc-in response [:session ::access-tokens] tokens)
     response))
@@ -280,8 +276,7 @@
 (defn- valid-profile? [{:keys [client-id client-secret]}]
   (and (some? client-id) (some? client-secret)))
 
-(defn wrap-oauth2
-  [handler profiles]
+(defn wrap-oauth2 [handler profiles]
   {:pre [(every? valid-profile? (vals profiles))]}
   (let [id-profiles  (for [[k v] profiles] (assoc v :id k))
         launches  (into {} (map (juxt :launch-uri identity)) id-profiles)
