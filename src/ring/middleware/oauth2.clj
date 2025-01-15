@@ -194,10 +194,9 @@
                          raise)))))
 
 (defn- expired-access-tokens [access-tokens]
-  (let [now (Date.)
-        expired-access-token? (fn [[_ {:keys [expires refresh-token]}]]
+  (let [expired-access-token? (fn [[_ {:keys [expires refresh-token]}]]
                                 (and refresh-token expires
-                                     (.before expires now)))]
+                                     (.before expires (Date.))))]
     (->> access-tokens (filter expired-access-token?) (into {}))))
 
 (defn- update-tokens [access-tokens [profile-key maybe-grant]]
