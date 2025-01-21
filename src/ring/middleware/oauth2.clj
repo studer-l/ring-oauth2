@@ -130,15 +130,13 @@
 
 (defn- get-access-token
   ([profile request]
-   (-> (access-token-http-options profile request)
-       http/request
+   (-> (http/request (access-token-http-options profile request))
        (format-access-token)))
   ([profile request respond raise]
-   (http/request
-    (-> (access-token-http-options profile request)
-        (assoc :async? true))
-    (comp respond format-access-token)
-    raise)))
+   (http/request (-> (access-token-http-options profile request)
+                     (assoc :async? true))
+                 (comp respond format-access-token)
+                 raise)))
 
 (defn state-mismatch-handler
   ([_]
