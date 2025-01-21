@@ -262,10 +262,32 @@
     (assoc request :oauth2/access-tokens tokens)
     request))
 
-(defn- assoc-access-tokens-in-response [response tokens]
-  (if tokens
-    (assoc-in response [:session ::access-tokens] tokens)
+(defn- assoc-access-tokens-in-response
+  [original-tokens updated-tokens response]
+  (if (and (not (contains? response :session))
+           (not= original-tokens updated-tokens))
+    (assoc-in response [:session ::access-tokens] updated-tokens)
     response))
+
+(defn- wrap-refresh-access-tokens [handler profiles]
+  (fn ([request]
+       (let [access-tokens (get-in request [:session ::access-tokens])
+             updated-access-tokens (refresh-all-tokens profiles access-tokens)
+             response (handler (assoc-access-tokens-in-request request
+                                                 updated-access-tokens))]
+         (assoc-access-tokens-in-response access-tokens updated-access-tokens
+                                          response)))
+    ([request respond raise]
+     (let [access-tokens (get-in request [:session ::access-tokens])
+           respond
+           (fn [updated-access-tokens]
+             (let [request (assoc-access-tokens-in-request
+                            request updated-access-tokens)
+                   update-session (partial assoc-access-tokens-in-response
+                                           access-tokens updated-access-tokens)
+                   respond (comp respond update-session)]
+               (handler request respond raise)))]
+       (refresh-all-tokens profiles access-tokens respond)))))
 
 (defn- parse-redirect-url [{:keys [redirect-uri]}]
   (.getPath (java.net.URI. redirect-uri)))
@@ -277,31 +299,19 @@
   {:pre [(every? valid-profile? (vals profiles))]}
   (let [id-profiles  (for [[k v] profiles] (assoc v :id k))
         launches  (into {} (map (juxt :launch-uri identity)) id-profiles)
-        redirects (into {} (map (juxt parse-redirect-url identity)) id-profiles)]
+        redirects (into {} (map (juxt parse-redirect-url identity)) id-profiles)
+        handler (wrap-refresh-access-tokens handler profiles)]
     (fn
       ([{:keys [uri] :as request}]
        (if-let [profile (launches uri)]
          ((make-launch-handler profile) request)
          (if-let [profile (redirects uri)]
            ((:redirect-handler profile (make-redirect-handler profile)) request)
-           (let [access-tokens (->> (get-in request [:session ::access-tokens])
-                                    (refresh-all-tokens profiles))]
-             (-> request
-                 (assoc-access-tokens-in-request access-tokens)
-                 handler
-                 (assoc-access-tokens-in-response access-tokens))))))
+           (handler request))))
       ([{:keys [uri] :as request} respond raise]
        (if-let [profile (launches uri)]
          ((make-launch-handler profile) request respond raise)
          (if-let [profile (redirects uri)]
            ((:redirect-handler profile (make-redirect-handler profile))
             request respond raise)
-           (let [access-tokens (get-in request [:session ::access-tokens])
-                 respond (fn [access-tokens]
-                           (let [request (assoc-access-tokens-in-request
-                                          request access-tokens)
-                                 respond (comp respond
-                                               #(assoc-access-tokens-in-response
-                                                 % access-tokens))]
-                             (handler request respond raise)))]
-             (refresh-all-tokens profiles access-tokens respond))))))))
+           (handler request respond raise)))))))

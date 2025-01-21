@@ -204,10 +204,7 @@
 
 (deftest test-access-tokens-key
   (let [tokens {:test {:token "defdef", :expires 3600}}]
-    (is (= {:status 200,
-            :headers {},
-            :body tokens,
-            :session {::oauth2/access-tokens tokens}}
+    (is (= {:status 200, :headers {}, :body tokens}
            (-> (mock/request :get "/")
                (assoc :session {::oauth2/access-tokens tokens})
                (test-handler))))))
@@ -380,11 +377,10 @@
 
 (deftest test-handler-passthrough
   (let [tokens  {:test "tttkkkk"}
-        session {::oauth2/access-tokens tokens}
         request (-> (mock/request :get "/example")
-                    (assoc :session session))]
+                    (assoc :session {::oauth2/access-tokens tokens}))]
     (testing "sync handler"
-      (is (= {:status 200, :headers {}, :body tokens :session session}
+      (is (= {:status 200, :headers {}, :body tokens}
              (test-handler request))))
 
     (testing "async handler"
@@ -393,7 +389,7 @@
         (test-handler request respond raise)
         (is (= :empty
                (deref raise 100 :empty)))
-        (is (= {:status 200, :headers {}, :body tokens :session session}
+        (is (= {:status 200, :headers {}, :body tokens}
                (deref respond 100 :empty)))))))
 
 (def refresh-token-response
@@ -486,3 +482,39 @@
           (let [response (deref respond 100 :empty)]
             (is (not= response :empty))
             (is (= {:test-1 good-grant} (:body response)))))))))
+
+(deftest test-token-refresh-clear-session
+  (fake/with-fake-routes
+    {"https://example.com/oauth2/access-token"
+     (constantly refresh-token-response)}
+
+    (let [clear-response {:status 200 :headers {} :body nil :session nil}
+          session-clear-handler (fn
+                                  ([_request] clear-response)
+                                  ([_request respond _raise]
+                                   (respond clear-response)))
+          handler (wrap-oauth2 session-clear-handler {:test test-profile})
+          now (Instant/now)
+          old-expires (seconds-from-now-to-date now -60)
+          request (-> (mock/request :get "/")
+                      (assoc :session
+                             {::oauth2/access-tokens
+                              {:test {:token "oldtoken"
+                                      :refresh-token "oldrefresh"
+                                      :expires old-expires}}}))]
+
+      (testing "sync handler"
+        (let [response (handler request)]
+          (is (= 200 (:status response)))
+          (is (nil? (:session response)))))
+
+      (testing "async handler"
+        (let [respond (promise)
+              raise (promise)]
+          (handler request respond raise)
+          (let [response (deref respond 100 :empty)
+                error (deref raise 100 :empty)]
+            (is (not= :empty response))
+            (is (= :empty error))
+            (is (= 200 (:status response)))
+            (is (nil? (:session response)))))))))
