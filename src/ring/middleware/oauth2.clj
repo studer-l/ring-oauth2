@@ -263,8 +263,7 @@
 (defn- nil-session? [response]
   (and (contains? response :session) (nil? (:session response))))
 
-(defn- assoc-access-tokens-in-response
-  [original-tokens updated-tokens response]
+(defn- assoc-access-tokens-in-response [original-tokens updated-tokens response]
   (if (or (nil-session? response) (= original-tokens updated-tokens))
     response
     (assoc-in response [:session ::access-tokens] updated-tokens)))
