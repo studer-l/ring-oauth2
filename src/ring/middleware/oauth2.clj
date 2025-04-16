@@ -207,17 +207,17 @@
 
 (def refresh-socket-timeout 60000)
 
-(defn- refresh-token-request-options [profile refresh-token]
+(defn- refresh-token-http-options [profile refresh-token]
   (-> (token-http-options profile {:grant_type "refresh_token"
                                    :refresh_token refresh-token})
       (assoc :socket-timeout refresh-socket-timeout)))
 
 (defn- refresh-one-token
   ([profile refresh-token]
-   (-> (http/request (refresh-token-request-options profile refresh-token))
+   (-> (http/request (refresh-token-http-options profile refresh-token))
        format-access-token))
   ([profile refresh-token respond raise]
-   (let [opts (-> (refresh-token-request-options profile refresh-token)
+   (let [opts (-> (refresh-token-http-options profile refresh-token)
                   (assoc :async? true))]
      (http/request opts (comp respond format-access-token) raise))))
 
