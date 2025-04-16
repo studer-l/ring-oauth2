@@ -296,7 +296,7 @@
 
 (defn wrap-oauth2 [handler profiles]
   {:pre [(every? valid-profile? (vals profiles))]}
-  (let [id-profiles  (for [[k v] profiles] (assoc v :id k))
+  (let [id-profiles (for [[k v] profiles] (assoc v :id k))
         launches  (into {} (map (juxt :launch-uri identity)) id-profiles)
         redirects (into {} (map (juxt parse-redirect-url identity)) id-profiles)
         handler (wrap-refresh-access-tokens handler profiles)]
