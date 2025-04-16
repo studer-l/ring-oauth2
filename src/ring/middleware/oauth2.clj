@@ -233,10 +233,10 @@
         respond-when-done #(when (= (count %) total) (respond %))]
     (if (zero? total)
       (respond {})
-      (doseq [[k v] m
-              :let [respond #(respond-when-done (swap! results assoc k %))
-                    raise (fn [_] (respond nil))]]
-        (f v respond raise)))))
+      (doseq [[k v] m]
+        (let [respond #(respond-when-done (swap! results assoc k %))
+              raise (fn [_] (respond nil))]
+          (f v respond raise))))))
 
 (defn- refresh-all-tokens
   ([profiles access-tokens]
