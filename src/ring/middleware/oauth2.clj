@@ -270,23 +270,20 @@
 
 (defn- wrap-refresh-access-tokens [handler profiles]
   (fn ([request]
-       (let [access-tokens (get-in request [:session ::access-tokens])
-             updated-access-tokens (refresh-all-tokens profiles access-tokens)
-             response (handler (assoc-access-tokens-in-request request
-                                                 updated-access-tokens))]
-         (assoc-access-tokens-in-response access-tokens updated-access-tokens
-                                          response)))
+       (let [tokens   (get-in request [:session ::access-tokens])
+             tokens'  (refresh-all-tokens profiles tokens)
+             request  (assoc-access-tokens-in-request request tokens')
+             response (handler request)]
+         (assoc-access-tokens-in-response tokens tokens' response)))
     ([request respond raise]
-     (let [access-tokens (get-in request [:session ::access-tokens])
-           respond
-           (fn [updated-access-tokens]
-             (let [request (assoc-access-tokens-in-request
-                            request updated-access-tokens)
-                   update-session (partial assoc-access-tokens-in-response
-                                           access-tokens updated-access-tokens)
-                   respond (comp respond update-session)]
-               (handler request respond raise)))]
-       (refresh-all-tokens profiles access-tokens respond)))))
+     (let [tokens (get-in request [:session ::access-tokens])]
+       (refresh-all-tokens
+        profiles tokens
+        (fn [tokens']
+          (let [request (assoc-access-tokens-in-request request tokens')
+                respond #(respond (assoc-access-tokens-in-response
+                                   tokens tokens' %))]
+            (handler request respond raise))))))))
 
 (defn- parse-redirect-url [{:keys [redirect-uri]}]
   (.getPath (java.net.URI. redirect-uri)))
