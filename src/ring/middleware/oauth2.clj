@@ -191,11 +191,11 @@
                            (respond (redirect-response profile session token)))
                          raise)))))
 
-(defn- expired-access-tokens [access-tokens]
-  (let [expired-access-token? (fn [[_ {:keys [expires refresh-token]}]]
-                                (and refresh-token expires
-                                     (.before expires (Date.))))]
-    (->> access-tokens (filter expired-access-token?) (into {}))))
+(defn- expired-access-token? [{:keys [expires refresh-token]}]
+  (and refresh-token expires (.before expires (Date.))))
+
+(defn expired-access-tokens [tokens]
+  (into {} (filter (comp expired-access-token? val)) tokens))
 
 (defn- update-tokens [access-tokens [profile-key maybe-grant]]
   (if maybe-grant
