@@ -263,20 +263,21 @@
 (defn- nil-session? [response]
   (and (contains? response :session) (nil? (:session response))))
 
+(defn- get-current-session [request response]
+  (if (contains? response :session)
+    (:session response)
+    (:session request)))
+
 (defn- assoc-access-tokens-in-response
   [request original-tokens updated-tokens response]
-  (cond
-    ;; handler explicitly cleared the session, we simply forward
-    (nil-session? response) response
-    ;; tokens did not update, again forward as-is
-    (= original-tokens updated-tokens) response
-    ;; handler is also changing session; add our refresh to the change
-    (contains? response :session) (assoc-in response [:session ::access-tokens]
-                                            updated-tokens)
-    ;; handler did not change session, update original
-    :else (let [original-session (get request :session)]
-            (assoc response :session
-                   (assoc original-session ::access-tokens updated-tokens)))))
+  (if (or (nil-session? response)
+          (= original-tokens updated-tokens))
+    ;; either handler explicitly cleared session or no token refresh occurred
+    response
+    ;; otherwise add refreshed tokens to current session
+    (let [session (-> (get-current-session request response)
+                      (assoc ::access-tokens updated-tokens))]
+      (assoc response :session session))))
 
 (defn- wrap-refresh-access-tokens [handler profiles]
   (fn ([request]
