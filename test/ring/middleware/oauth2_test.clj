@@ -539,13 +539,15 @@
                          ([_] {:status 200 :body "ok"
                                :session {:user-id 123 :cart-items 5}})
                          ([_ respond _] (respond {:status 200 :body "ok"
-                                                   :session {:user-id 123 :cart-items 5}})))
+                                                   :session {:user-id 123
+                                                             :cart-items 5}})))
                        {:test test-profile})
               response (handler request)]
           ;; Handler's session changes preserved
           (is (= 5 (get-in response [:session :cart-items])))
           ;; Refreshed token added to handler's session
-          (is (= "newtoken" (get-in response [:session ::oauth2/access-tokens :test :token])))))
+          (is (= "newtoken" (get-in response [:session ::oauth2/access-tokens
+                                              :test :token])))))
 
       (testing "handler doesn't change session, extra state preserved"
         (let [handler (wrap-oauth2
@@ -557,4 +559,5 @@
           ;; Original session's extra state preserved
           (is (= 123 (get-in response [:session :user-id])))
           ;; Token refreshed
-          (is (= "newtoken" (get-in response [:session ::oauth2/access-tokens :test :token]))))))))
+          (is (= "newtoken" (get-in response [:session ::oauth2/access-tokens
+                                              :test :token]))))))))
