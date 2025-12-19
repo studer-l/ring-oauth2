@@ -231,9 +231,8 @@
     (if (zero? total)
       (respond {})
       (doseq [[k v] m]
-        (let [respond #(respond-when-done (swap! results assoc k %))
-              raise (fn [_] (respond nil))]
-          (f v respond raise))))))
+        (let [respond #(respond-when-done (swap! results assoc k %))]
+          (f v respond))))))
 
 (defn- refresh-all-tokens
   ([profiles access-tokens]
@@ -245,8 +244,10 @@
         (reduce update-tokens access-tokens)))
   ([profiles access-tokens respond]
    (async-map-values
-    (fn [[profile refresh-token] respond raise]
-      (refresh-one-token profile refresh-token respond raise))
+    (fn [[profile refresh-token] respond]
+      ;; on failure, yield a result of `nil` as refreshed token to signal error
+      (let [raise (fn [_] (respond nil))]
+        (refresh-one-token profile refresh-token respond raise)))
     (fn [refreshed-tokens]
       (respond
        (reduce update-tokens access-tokens refreshed-tokens)))
