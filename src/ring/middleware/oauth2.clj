@@ -244,7 +244,7 @@
         (map (fn [[profile-key [profile refresh-token]]]
                [profile-key
                 (try (refresh-one-token profile refresh-token)
-                     (catch clojure.lang.ExceptionInfo _ nil))]))
+                     (catch Exception _ nil))]))
         (reduce update-tokens access-tokens)))
   ([profiles access-tokens respond]
    (async-map-values
