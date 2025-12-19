@@ -518,6 +518,7 @@
             (is (= :empty error))
             (is (= 200 (:status response)))
             (is (nil? (:session response)))))))))
+
 (deftest test-token-refresh-preserves-session-state
   (fake/with-fake-routes
     {"https://example.com/oauth2/access-token"
