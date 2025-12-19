@@ -518,3 +518,43 @@
             (is (= :empty error))
             (is (= 200 (:status response)))
             (is (nil? (:session response)))))))))
+(deftest test-token-refresh-preserves-session-state
+  (fake/with-fake-routes
+    {"https://example.com/oauth2/access-token"
+     (constantly refresh-token-response)}
+
+    (let [now (Instant/now)
+          old-expires (seconds-from-now-to-date now -60)
+          request (-> (mock/request :get "/")
+                      (assoc :session
+                             {:user-id 123  ; extra session state
+                              ::oauth2/access-tokens
+                              {:test {:token "oldtoken"
+                                      :refresh-token "oldrefresh"
+                                      :expires old-expires}}}))]
+
+      (testing "handler sets new session state during refresh"
+        (let [handler (wrap-oauth2
+                       (fn
+                         ([_] {:status 200 :body "ok"
+                               :session {:user-id 123 :cart-items 5}})
+                         ([_ respond _] (respond {:status 200 :body "ok"
+                                                   :session {:user-id 123 :cart-items 5}})))
+                       {:test test-profile})
+              response (handler request)]
+          ;; Handler's session changes preserved
+          (is (= 5 (get-in response [:session :cart-items])))
+          ;; Refreshed token added to handler's session
+          (is (= "newtoken" (get-in response [:session ::oauth2/access-tokens :test :token])))))
+
+      (testing "handler doesn't change session, extra state preserved"
+        (let [handler (wrap-oauth2
+                       (fn
+                         ([_] {:status 200 :body "ok"})
+                         ([_ respond _] (respond {:status 200 :body "ok"})))
+                       {:test test-profile})
+              response (handler request)]
+          ;; Original session's extra state preserved
+          (is (= 123 (get-in response [:session :user-id])))
+          ;; Token refreshed
+          (is (= "newtoken" (get-in response [:session ::oauth2/access-tokens :test :token]))))))))

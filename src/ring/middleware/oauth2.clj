@@ -263,10 +263,20 @@
 (defn- nil-session? [response]
   (and (contains? response :session) (nil? (:session response))))
 
-(defn- assoc-access-tokens-in-response [original-tokens updated-tokens response]
-  (if (or (nil-session? response) (= original-tokens updated-tokens))
-    response
-    (assoc-in response [:session ::access-tokens] updated-tokens)))
+(defn- assoc-access-tokens-in-response
+  [request original-tokens updated-tokens response]
+  (cond
+    ;; handler explicitly cleared the session, we simply forward
+    (nil-session? response) response
+    ;; tokens did not update, again forward as-is
+    (= original-tokens updated-tokens) response
+    ;; handler is also changing session; add our refresh to the change
+    (contains? response :session) (assoc-in response [:session ::access-tokens]
+                                            updated-tokens)
+    ;; handler did not change session, update original
+    :else (let [original-session (get request :session)]
+            (assoc response :session
+                   (assoc original-session ::access-tokens updated-tokens)))))
 
 (defn- wrap-refresh-access-tokens [handler profiles]
   (fn ([request]
@@ -274,7 +284,7 @@
              tokens'  (refresh-all-tokens profiles tokens)
              request  (assoc-access-tokens-in-request request tokens')
              response (handler request)]
-         (assoc-access-tokens-in-response tokens tokens' response)))
+         (assoc-access-tokens-in-response request tokens tokens' response)))
     ([request respond raise]
      (let [tokens (get-in request [:session ::access-tokens])]
        (refresh-all-tokens
@@ -282,7 +292,7 @@
         (fn [tokens']
           (let [request (assoc-access-tokens-in-request request tokens')
                 respond #(respond (assoc-access-tokens-in-response
-                                   tokens tokens' %))]
+                                   request tokens tokens' %))]
             (handler request respond raise))))))))
 
 (defn- parse-redirect-url [{:keys [redirect-uri]}]
